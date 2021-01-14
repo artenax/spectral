@@ -32,8 +32,10 @@ class Controller : public QObject {
   explicit Controller(QObject* parent = nullptr);
   ~Controller();
 
-  Q_INVOKABLE void loginWithCredentials(QString, QString, QString, QString);
-  Q_INVOKABLE void loginWithAccessToken(QString, QString, QString, QString);
+  Q_INVOKABLE Connection* newConnection();
+  Q_INVOKABLE QString
+  generateDeviceName(const QString& productName = "Spectral");
+  Q_INVOKABLE void finishLogin(Connection* conn, QString deviceName);
 
   QVector<Connection*> connections() const { return m_connections; }
 
@@ -83,7 +85,10 @@ class Controller : public QObject {
  private:
   QVector<Connection*> m_connections;
   QPointer<Connection> m_connection;
+  int m_init_connections_count = 0;  // Only used during initialization
+
   QNetworkConfigurationManager m_ncm;
+
   bool m_busy = false;
 
   QByteArray loadAccessTokenFromFile(const AccountSettings& account);
@@ -98,19 +103,21 @@ class Controller : public QObject {
 
  private slots:
   void invokeLogin();
+  void handleInitConnection();
 
  signals:
   void busyChanged();
-  void errorOccured(QString error, QString detail);
-  void syncDone();
-  void connectionAdded(Connection* conn);
-  void connectionDropped(Connection* conn);
-  void initiated();
-  void notificationClicked(const QString roomId, const QString eventId);
   void quitOnLastWindowClosedChanged();
   void unreadCountChanged();
   void connectionChanged();
   void isOnlineChanged();
+
+  void errorOccured(QString error, QString detail);
+  void notificationClicked(const QString roomId, const QString eventId);
+  void connectionAdded(Connection* conn);
+  void connectionDropped(Connection* conn);
+  void initialized();
+  void firstTimeLogin();
 
  public slots:
   void logout(Connection* conn);

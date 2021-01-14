@@ -15,21 +15,20 @@ class User;
 class UserType : public QObject {
   Q_OBJECT
 
-  public:
-    enum Types {
-      Owner = 1,
-      Admin,
-      Moderator,
-      Member,
-      Muted,
-    };
-    Q_ENUMS(Types)
+ public:
+  enum Types {
+    Owner = 1,
+    Admin,
+    Moderator,
+    Member,
+    Muted,
+  };
+  Q_ENUMS(Types)
 };
 
 class UserListModel : public QAbstractListModel {
   Q_OBJECT
-  Q_PROPERTY(
-      Quotient::Room* room READ room WRITE setRoom NOTIFY roomChanged)
+  Q_PROPERTY(Quotient::Room* room READ room WRITE setRoom NOTIFY roomChanged)
  public:
   enum EventRoles {
     NameRole = Qt::UserRole + 1,
@@ -57,7 +56,6 @@ class UserListModel : public QAbstractListModel {
   void userAdded(Quotient::User* user);
   void userRemoved(Quotient::User* user);
   void refresh(Quotient::User* user, QVector<int> roles = {});
-  void avatarChanged(Quotient::User* user, const Quotient::Room* context);
 
  private:
   Quotient::Room* m_currentRoom;

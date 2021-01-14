@@ -79,6 +79,7 @@ ApplicationWindow {
 
         quitOnLastWindowClosed: !MSettings.showTray
 
+        onFirstTimeLogin: loginDialog.createObject(window, {"conn": spectralController.newConnection()}).open()
         onErrorOccured: errorControl.show(error + ": " + detail, 3000)
     }
 
@@ -126,7 +127,19 @@ ApplicationWindow {
     Component {
         id: loginDialog
 
-        LoginDialog {}
+        LoginUserIDDialog {}
+    }
+
+    Component {
+        id: loginHomeserverDialog
+
+        LoginHomeserverDialog {}
+    }
+
+    Component {
+        id: loginPasswordDialog
+
+        LoginPasswordDialog {}
     }
 
     Component {
@@ -215,11 +228,5 @@ ApplicationWindow {
 
     function hideWindow() {
         window.hide()
-    }
-
-    Component.onCompleted: {
-        spectralController.initiated.connect(function() {
-            if (spectralController.accountCount == 0) loginDialog.createObject(window).open()
-        })
     }
 }

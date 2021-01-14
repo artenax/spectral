@@ -92,7 +92,7 @@ Dialog {
                     color: MPalette.lighter
                 }
 
-                onClicked: loginDialog.createObject(ApplicationWindow.overlay).open()
+                onClicked: loginDialog.createObject(ApplicationWindow.overlay, {"conn": spectralController.newConnection()}).open()
             }
         }
 

@@ -19,10 +19,10 @@
 #include "csapi/typing.h"
 #include "events/accountdataevents.h"
 #include "events/reactionevent.h"
-#include "events/roommessageevent.h"
-#include "events/typingevent.h"
-#include "events/roompowerlevelsevent.h"
 #include "events/roomcanonicalaliasevent.h"
+#include "events/roommessageevent.h"
+#include "events/roompowerlevelsevent.h"
+#include "events/typingevent.h"
 #include "jobs/downloadfilejob.h"
 #include "user.h"
 #include "utils.h"
@@ -265,10 +265,11 @@ QString SpectralRoom::eventToString(const RoomEvent& evt,
 
         // 2. prettyPrint/text 3. plainText/HTML 4. plainText/text
         QString plainBody;
-        if (e.hasTextContent() && e.content() && e.mimeType().name() == "text/plain") { // 2/4
-            plainBody = static_cast<const TextContent*>(e.content())->body;
-        } else { // 3
-            plainBody = e.plainBody();
+        if (e.hasTextContent() && e.content() &&
+            e.mimeType().name() == "text/plain") {  // 2/4
+          plainBody = static_cast<const TextContent*>(e.content())->body;
+        } else {  // 3
+          plainBody = e.plainBody();
         }
 
         if (prettyPrint) {
@@ -312,7 +313,7 @@ QString SpectralRoom::eventToString(const RoomEvent& evt,
                 text += " and ";
               if (e.avatarUrl().isEmpty())
                 text += tr("cleared their avatar");
-              else if (e.prevContent()->avatarUrl.isEmpty())
+              else if (!e.prevContent()->avatarUrl)
                 text += tr("set an avatar");
               else
                 text += tr("updated their avatar");
@@ -382,23 +383,23 @@ QString SpectralRoom::eventToString(const RoomEvent& evt,
         // A small hack for state events from TWIM bot
         return e.stateKey() == "twim"
                    ? tr("updated the database", "TWIM bot updated the database")
-                   : e.stateKey().isEmpty()
-                         ? tr("updated %1 state", "%1 - Matrix event type")
-                               .arg(e.matrixType())
-                         : tr("updated %1 state for %2",
-                              "%1 - Matrix event type, %2 - state key")
-                               .arg(e.matrixType(),
-                                    e.stateKey().toHtmlEscaped());
+               : e.stateKey().isEmpty()
+                   ? tr("updated %1 state", "%1 - Matrix event type")
+                         .arg(e.matrixType())
+                   : tr("updated %1 state for %2",
+                        "%1 - Matrix event type, %2 - state key")
+                         .arg(e.matrixType(), e.stateKey().toHtmlEscaped());
       },
       tr("Unknown event"));
 }
 
 void SpectralRoom::changeAvatar(QUrl localFile) {
   const auto job = connection()->uploadFile(localFile.toLocalFile());
-  if (isJobRunning(job)) {
+  if (isJobPending(job)) {
     connect(job, &BaseJob::success, this, [this, job] {
       connection()->callApi<SetRoomStateWithKeyJob>(
-          id(), "m.room.avatar", localUser()->id(), QJsonObject{{"url", job->contentUri()}});
+          id(), "m.room.avatar", localUser()->id(),
+          QJsonObject{{"url", job->contentUri()}});
     });
   }
 }

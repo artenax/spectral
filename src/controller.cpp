@@ -59,83 +59,30 @@ inline QString accessTokenFileName(const AccountSettings& account) {
          '/' + fileName;
 }
 
-void Controller::loginWithCredentials(QString serverAddr,
-                                      QString user,
-                                      QString pass,
-                                      QString deviceName) {
-  if (user.isEmpty() || pass.isEmpty()) {
-    return;
-  }
-
-  if (deviceName.isEmpty()) {
-    deviceName = "Spectral " + QSysInfo::machineHostName() + " " +
-                 QSysInfo::productType() + " " + QSysInfo::productVersion() +
-                 " " + QSysInfo::currentCpuArchitecture();
-  }
-
-  QUrl serverUrl(serverAddr);
-
-  auto conn = new Connection(this);
-  if (serverUrl.isValid()) {
-    conn->setHomeserver(serverUrl);
-  }
-  conn->connectToServer(user, pass, deviceName, "");
-
-  connect(conn, &Connection::connected, [=] {
-    AccountSettings account(conn->userId());
-    account.setKeepLoggedIn(true);
-    account.clearAccessToken();  // Drop the legacy - just in case
-    account.setHomeserver(conn->homeserver());
-    account.setDeviceId(conn->deviceId());
-    account.setDeviceName(deviceName);
-    if (!saveAccessTokenToKeyChain(account, conn->accessToken()))
-      qWarning() << "Couldn't save access token";
-    account.sync();
-    addConnection(conn);
-    setConnection(conn);
-  });
-  connect(conn, &Connection::networkError,
-          [=](QString error, QString, int, int) {
-            emit errorOccured("Network Error", error);
-          });
-  connect(conn, &Connection::loginError, [=](QString error, QString) {
-    emit errorOccured("Login Failed", error);
-  });
+Connection* Controller::newConnection() {
+  return new Connection(this);
 }
 
-void Controller::loginWithAccessToken(QString serverAddr,
-                                      QString user,
-                                      QString token,
-                                      QString deviceName) {
-  if (user.isEmpty() || token.isEmpty()) {
-    return;
-  }
+QString Controller::generateDeviceName(const QString& productName) {
+  return productName + " " + QSysInfo::machineHostName() + " " +
+         QSysInfo::productType() + " " + QSysInfo::productVersion() + " " +
+         QSysInfo::currentCpuArchitecture();
+}
 
-  QUrl serverUrl(serverAddr);
+void Controller::finishLogin(Connection* conn, QString deviceName) {
+  qDebug() << "Setting up" << conn->userId() << "'s" << deviceName;
 
-  auto conn = new Connection(this);
-  if (serverUrl.isValid()) {
-    conn->setHomeserver(serverUrl);
-  }
-
-  connect(conn, &Connection::connected, [=] {
-    AccountSettings account(conn->userId());
-    account.setKeepLoggedIn(true);
-    account.clearAccessToken();  // Drop the legacy - just in case
-    account.setHomeserver(conn->homeserver());
-    account.setDeviceId(conn->deviceId());
-    account.setDeviceName(deviceName);
-    if (!saveAccessTokenToKeyChain(account, conn->accessToken()))
-      qWarning() << "Couldn't save access token";
-    account.sync();
-    addConnection(conn);
-    setConnection(conn);
-  });
-  connect(conn, &Connection::networkError,
-          [=](QString error, QString, int, int) {
-            emit errorOccured("Network Error", error);
-          });
-  conn->connectWithToken(user, token, deviceName);
+  AccountSettings account(conn->userId());
+  account.setKeepLoggedIn(true);
+  account.clearAccessToken();  // Drop the legacy - just in case
+  account.setHomeserver(conn->homeserver());
+  account.setDeviceId(conn->deviceId());
+  account.setDeviceName(deviceName);
+  if (!saveAccessTokenToKeyChain(account, conn->accessToken()))
+    qWarning() << "Couldn't save access token";
+  account.sync();
+  addConnection(conn);
+  setConnection(conn);
 }
 
 void Controller::logout(Connection* conn) {
@@ -161,8 +108,11 @@ void Controller::logout(Connection* conn) {
     conn->stopSync();
     emit conn->stateChanged();
     emit conn->loggedOut();
-    if (!m_connections.isEmpty())
-      setConnection(m_connections[0]);
+    if (m_connections.isEmpty()) {
+      emit firstTimeLogin();
+      return;
+    }
+    setConnection(m_connections[0]);
   });
   connect(logoutJob, &LogoutJob::failure, this, [=] {
     emit errorOccured("Server-side Logout Failed", logoutJob->errorString());
@@ -178,8 +128,6 @@ void Controller::addConnection(Connection* c) {
 
   connect(c, &Connection::syncDone, this, [=] {
     setBusy(false);
-
-    emit syncDone();
 
     c->sync(30000);
     c->saveState();
@@ -214,7 +162,24 @@ void Controller::dropConnection(Connection* c) {
 
 void Controller::invokeLogin() {
   using namespace Quotient;
+  connect(this, &Controller::initialized, this, [=] {
+    qDebug() << "Application initialized";
+
+    if (m_connections.isEmpty()) {
+      emit firstTimeLogin();
+      return;
+    }
+
+    setConnection(m_connections[0]);
+  });
+
   const auto accounts = SettingsGroup("Accounts").childGroups();
+  m_init_connections_count = accounts.count();
+  if (m_init_connections_count < 1) {
+    emit initialized();
+    return;
+  }
+
   for (const auto& accountId : accounts) {
     AccountSettings account{accountId};
     if (!account.homeserver().isEmpty()) {
@@ -234,15 +199,22 @@ void Controller::invokeLogin() {
               [=](QString error, QString, int, int) {
                 emit errorOccured("Network Error", error);
               });
-      c->connectWithToken(account.userId(), accessToken, account.deviceId());
+      connect(c, &Connection::connected, this,
+              &Controller::handleInitConnection);
+      connect(c, &Connection::loginError, this,
+              &Controller::handleInitConnection);
+
+      c->assumeIdentity(account.userId(), accessToken, account.deviceId());
     }
   }
+}
 
-  if (!m_connections.isEmpty()) {
-    setConnection(m_connections[0]);
+void Controller::handleInitConnection() {
+  m_init_connections_count -= 1;
+
+  if (m_init_connections_count < 1) {
+    emit initialized();
   }
-
-  emit initiated();
 }
 
 QByteArray Controller::loadAccessTokenFromFile(const AccountSettings& account) {
@@ -379,7 +351,7 @@ void Controller::playAudio(QUrl localFile) {
 
 void Controller::changeAvatar(Connection* conn, QUrl localFile) {
   auto job = conn->uploadFile(localFile.toLocalFile());
-  if (isJobRunning(job)) {
+  if (isJobPending(job)) {
     connect(job, &BaseJob::success, this, [conn, job] {
       conn->callApi<SetAvatarUrlJob>(conn->userId(), job->contentUri());
     });
